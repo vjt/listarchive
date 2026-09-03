@@ -7,6 +7,10 @@
 #   IMPORTER := $(LIB)/mhonarc_import.py
 #   include $(LIB)/archive.mk
 #
+# Also honoured: DB, SITE, PAGES, CONFIG, PORT, PAGEFIND, PYTHON; BASE_URL to
+# override the config's; IMPORT_FLAGS for an importer that does not take
+# `--list`; CHECK_EXTRA for further `make check` statements.
+#
 # Targets:
 #   make            db + site + search index
 #   make db         pages/ -> $(DB)
@@ -32,8 +36,17 @@ RENDERER ?= $(LIB)/render.py
 IMPORTER ?= $(LIB)/mhonarc_import.py
 PORT     ?= 8000
 
+# One MHonArc archive is one list, so the shared importer is told which by
+# name. An archive that holds several — ita-pe carries six, and reads the name
+# off each page — has its own importer and no LIST to give: it sets
+# IMPORT_FLAGS itself, empty or otherwise, and the check below stands down.
+# `origin`, not `ifndef`: setting IMPORT_FLAGS to nothing is the whole point
+# for such an archive, and `ifndef` cannot tell empty from unset.
+ifeq ($(origin IMPORT_FLAGS),undefined)
 ifndef LIST
 $(error set LIST to the slug of the list being imported, e.g. LIST := cyber-rights)
+endif
+IMPORT_FLAGS := --list $(LIST)
 endif
 
 .PHONY: all db site search serve check clean
@@ -46,12 +59,16 @@ db: $(DB)
 # a new month appearing is a reason to rebuild, a page being rewritten in place
 # is not (and does not happen — `pages/` is write-once archaeology).
 $(DB): $(IMPORTER) $(SCHEMA) $(shell find $(PAGES) -maxdepth 1 -type d 2>/dev/null)
-	$(PYTHON) $(IMPORTER) --db $(DB) --pages $(PAGES) --list $(LIST) --schema $(SCHEMA)
+	$(PYTHON) $(IMPORTER) --db $(DB) --pages $(PAGES) $(IMPORT_FLAGS) --schema $(SCHEMA)
 
 site: $(SITE)/index.html
 
+# BASE_URL overrides the one in the config, which is what CI wants: the same
+# tree is published under a project name on Pages and under its own name on the
+# real host, and only the sitemap can tell the difference.
 $(SITE)/index.html: $(RENDERER) $(CONFIG) $(DB)
-	$(PYTHON) $(RENDERER) --db $(DB) --config $(CONFIG) --out $(SITE)
+	$(PYTHON) $(RENDERER) --db $(DB) --config $(CONFIG) --out $(SITE) \
+	  $(if $(BASE_URL),--base-url "$(BASE_URL)")
 
 # Pagefind indexes only what carries `data-pagefind-body`, i.e. the thread
 # pages: the period and author indexes would otherwise drown every search in
@@ -74,9 +91,9 @@ serve: all
 
 # The numbers a README quotes. Re-run after any importer change: a threading
 # bug shows up here as a thread count that moved, long before it shows up as a
-# page that reads wrong.
-check: $(DB)
-	@sqlite3 $(DB) \
+# page that reads wrong. An archive with something of its own to count sets
+# CHECK_EXTRA to further statements; CHECK_SQL replaces the lot.
+CHECK_SQL ?= \
 	  "SELECT 'messages', count(*) FROM messages;" \
 	  "SELECT 'threads', count(*) FROM threads;" \
 	  "SELECT 'senders', count(DISTINCT from_addr) FROM messages;" \
@@ -84,6 +101,9 @@ check: $(DB)
 	     AND NOT EXISTS (SELECT 1 FROM messages p WHERE p.id = m.parent_id);" \
 	  "SELECT 'no date', count(*) FROM messages WHERE posted_at IS NULL;" \
 	  "SELECT 'no thread', count(*) FROM messages WHERE thread_id IS NULL;"
+
+check: $(DB)
+	@sqlite3 $(DB) $(CHECK_SQL) $(CHECK_EXTRA)
 
 clean:
 	rm -rf $(DB) $(DB)-wal $(DB)-shm $(SITE)
