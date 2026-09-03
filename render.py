@@ -40,6 +40,7 @@ import sqlite3
 import time
 import tomllib
 import unicodedata
+import zlib
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -370,6 +371,14 @@ RE_MH_BARE = re.compile(r"^(?:\./)?msg(?P<n>\d+)\.html$", re.I)
 
 
 def wayback(href: str) -> str:
+    # The Wayback wants an absolute URL after the timestamp. A bare host —
+    # which is what `original_host` is — makes it guess, and the link that used
+    # to read `…/web/2007/http://listserv.nic.it/cgi-bin/wa?…` came out as
+    # `…/web/2007/listserv.nic.it/…` when the host became configurable. These
+    # archives were all served over plain HTTP, which is also how the Archive
+    # recorded them.
+    if not href.lower().startswith(("http://", "https://")):
+        href = "http://" + href.lstrip("/")
     return f'href="https://web.archive.org/web/2007/{html.escape(href, quote=True)}" class="in gone"'
 
 
@@ -1035,7 +1044,11 @@ def render(db_path: Path, out: Path, cfg: Config) -> None:
         return up + to
 
     def author_dir(addr: str) -> str:
-        return f"autori/{slug(addr, 'anonimo')}-{abs(hash(addr)) % 9973:04d}/"
+        # crc32, not hash(): Python randomises string hashing per process, so
+        # `hash()` gave a different suffix on every build — `webmaster@pegas.it`
+        # was `…-7339` one run and `…-4762` the next, and every author URL in
+        # the site, the sitemap and anyone's bookmarks moved with it.
+        return f"autori/{slug(addr, 'anonimo')}-{zlib.crc32(addr.encode()) % 9973:04d}/"
 
     adirs = {a: author_dir(a) for a in by_author}
 
