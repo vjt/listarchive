@@ -1,0 +1,77 @@
+# Everything that differs between two archives rendered by the same code.
+#
+# Copy this next to the database, edit, and pass it with `--config`.  Unknown
+# keys are a hard error: a typo in `thread_model` that silently rendered the
+# wrong threading would survive to production unnoticed.
+#
+# Keys may sit at the top level or under a `[site]` / `[archive]` table — the
+# loader flattens both.  The split below is editorial, not structural.
+
+[site]
+
+# Slug-ish name of the archive.  Used in <title>, headings and page furniture.
+name = "cyber-rights"
+
+# Language of the generated pages: goes into <html lang="…">.  The renderer's
+# own strings are Italian; this does not translate them.
+lang = "it"
+
+# Where the built site will live.  Canonical URLs, the sitemap and robots.txt
+# are all built from it, so a wrong value is wrong in every generated file and
+# invisible in local browsing.  Trailing slash optional.
+base_url = "https://sindro.me/t/cyber-rights/"
+
+# <h1> of the index.  Defaults to `name` when empty.
+tagline = "cyber-rights — l'archivio della lista di ECN"
+
+# The panel under the <h1>: raw HTML, rendered as-is.  Say what the list was,
+# who ran it and where the pages come from.
+intro_html = """
+<p>Archivio della mailing list <strong>cyber-rights</strong> ospitata da
+<a href="https://www.ecn.org/">ECN</a>, ripescato dalla Wayback Machine e
+ripubblicato come sito statico.</p>
+"""
+
+# Footer of every page.  Same deal: raw HTML.
+footer_html = """
+<p>Le pagine originali sono di chi le ha scritte. Qui sono ricostruite dagli
+snapshot dell'Internet Archive.</p>
+"""
+
+[archive]
+
+# How the threads were reconstructed:
+#
+#   references — real `Message-Id:` / `References:` headers (MHonArc, mbox, or
+#                any importer that kept the headers).  A thread is a connected
+#                component of the reply graph and survives across periods; the
+#                renderer indents replies under their parent.
+#   chain      — the Previous/Next links the server drew (LISTSERV's `wa`).  A
+#                thread stops at the edge of its archive file, because that is
+#                as far as the links went.
+#
+# Use `references` whenever the importer can fill `message_id`/`parent_id`:
+# it is the threading the senders actually meant, not an approximation of it.
+thread_model = "references"
+
+# Which URL shapes in the original bodies point back inside this archive, and
+# therefore get rewritten to local pages instead of being left dangling:
+#
+#   mhonarc  — `msgNNNNN.html`, `.../YYYYMM/msgNNNNN.html`
+#   listserv — `cgi-bin/wa?A2=…&L=…&P=…`
+#   none     — rewrite nothing
+link_style = "mhonarc"
+
+# Host the archive was served from, e.g. `www.ecn.org`.  Only links to this
+# host are considered for the rewriting above; everything else stays as the
+# sender typed it.
+original_host = "www.ecn.org"
+
+# Offer, at the foot of a thread, other threads carrying the same subject in
+# other periods.  Useful for `chain`, where a discussion is cut at the month
+# boundary and the reader has to be handed the other half by hand.  With real
+# `references` threading the graph already spans periods, so leave it off.
+cross_period = false
+
+# One line explaining that section, when it is on.
+cross_period_note = ""

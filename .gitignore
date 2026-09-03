@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+archive.db
+archive.db-wal
+archive.db-shm
+site/
+bin/
