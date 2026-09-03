@@ -55,9 +55,22 @@ RE_PERIOD_DIR = re.compile(r"^\d{6}$")
 RE_XCOMMENT = re.compile(r"<!--X-(?P<field>[A-Za-z0-9-]+):(?P<val>.*?)-->", re.S)
 RE_HEAD_TABLE = re.compile(
     r"<!--X-Head-of-Message-->(?P<t>.*?)<!--X-Head-of-Message-End-->", re.S)
+# MHonArc 2.4 closes the body with its own marker; the 1.x that produced the
+# 1997 pages of cyber-rights opened `X-Body-of-Message` and never closed it, so
+# the body runs to the end of the message region.  Accepting either is the
+# difference between importing those 731 pages and dropping them as bodyless.
 RE_BODY = re.compile(
-    r"<!--X-Body-of-Message-->(?P<b>.*?)<!--X-Body-of-Message-End-->", re.S)
+    r"<!--X-Body-of-Message-->(?P<b>.*?)"
+    r"<!--X-(?:Body-of-Message-End|MsgBody-End)-->", re.S)
 RE_PRE = re.compile(r"^\s*<pre>(?P<b>.*)</pre>\s*$", re.S | re.I)
+# The old MHonArc laid the headers out as a bullet list between the subject
+# heading and the rule above the body, not as the table 2.4 draws:
+#   <LI><em>From</em>: <strong>Max Headroom &lt;max@…&gt;</strong></LI>
+RE_HEAD_LIST = re.compile(
+    r"<!--X-Subject-Header-End-->(?P<t>.*?)<!--X-Head-Body-Sep-Begin-->", re.S)
+RE_HEAD_LI = re.compile(
+    r"<li\b[^>]*>\s*<em>(?P<k>.*?)</em>\s*:?\s*(?P<v>.*?)(?:</li>|(?=<li\b)|$)",
+    re.S | re.I)
 RE_TR = re.compile(r"<tr\b.*?</tr>", re.S | re.I)
 RE_TD = re.compile(r"<td\b[^>]*>(?P<v>.*?)</td>", re.S | re.I)
 RE_TAG = re.compile(r"<[^>]+>")
@@ -69,7 +82,8 @@ RE_MSGID = re.compile(r"^<(.*)>$", re.S)
 
 # Fields carried as repeatable comments: one per value, in the order MHonArc
 # emitted them (References oldest first).
-MULTI = {"REFERENCE", "REFERENCES", "FOLLOW-UPS", "FOLLOWUPS"}
+# `REFERENCE-ID` is what the 1997 pages call the same thing.
+MULTI = {"REFERENCE", "REFERENCE-ID", "REFERENCES", "FOLLOW-UPS", "FOLLOWUPS"}
 # Structural comments — they mark regions of the page, they are not metadata.
 STRUCTURAL = re.compile(
     r"^(HEAD-END|BODY-BEGIN|BODY-OF-MESSAGE|MSGBODY|TOPPNI|BOTPNI|USER-HEADER|"
@@ -184,6 +198,15 @@ def parse_page(raw: bytes, lst: str, period: str, local_id: int) -> dict | None:
             val = strip_html(tds[1])
             if key and val:
                 table.setdefault(key, val)
+    else:
+        # Older MHonArc: same headers, drawn as a bullet list.
+        lst_m = RE_HEAD_LIST.search(text)
+        if lst_m:
+            for li in RE_HEAD_LI.finditer(lst_m.group("t")):
+                key = strip_html(li.group("k")).rstrip(":").strip()
+                val = strip_html(li.group("v"))
+                if key and val:
+                    table.setdefault(key, val)
 
     from_raw = table.get("From") or comments.get("FROM") or ""
     if not from_raw and "FROM-R13" in comments:
@@ -197,7 +220,8 @@ def parse_page(raw: bytes, lst: str, period: str, local_id: int) -> dict | None:
         # message with no date at all falls out of every index.
         posted_at = parse_date(comments["DATE"])
 
-    refs = [clean_msgid(v) for v in multi.get("REFERENCE", []) + multi.get("REFERENCES", [])]
+    refs = [clean_msgid(v) for v in multi.get("REFERENCE", [])
+            + multi.get("REFERENCE-ID", []) + multi.get("REFERENCES", [])]
     refs = [r for r in refs if r]
     message_id = clean_msgid(comments.get("MESSAGE-ID", "")) or None
     in_reply_to = clean_msgid(comments.get("IN-REPLY-TO", "")) or (refs[-1] if refs else None)
@@ -220,7 +244,8 @@ def parse_page(raw: bytes, lst: str, period: str, local_id: int) -> dict | None:
         "reply_to": table.get("Reply-To") or comments.get("REPLY-TO"),
         "sender": table.get("Sender") or comments.get("SENDER"),
         "x_to": table.get("To") or comments.get("TO"),
-        "content_type": comments.get("CONTENT-TYPE"),
+        # `X-ContentType` unhyphenated is the 1997 spelling.
+        "content_type": comments.get("CONTENT-TYPE") or comments.get("CONTENTTYPE"),
         "headers_json": json.dumps(headers, ensure_ascii=False),
         "body_html": body_html,
         "body_text": strip_html(body_html),
